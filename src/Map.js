@@ -3,68 +3,62 @@ import { Map, TileLayer, FeatureGroup, useLeaflet } from "react-leaflet";
 import { EditControl } from "react-leaflet-draw";
 import L from "leaflet";
 
-const data =  [
+let edit = false;
+
+const data = [
   [
-      [
-        21.616579336740603,
-        77.12016769252767
-      ],
-      [
-        22.268764039073968,
-        78.48223569073234
-      ],
-      [
-        19.642587534013032,
-        79.27311388323828
-      ],
-      [
-        18.8543103618898,
-        76.68079091891325
-      ]
+    [
+      21.616579336740603,
+      77.12016769252767
+    ],
+    [
+      22.268764039073968,
+      78.48223569073234
+    ],
+    [
+      19.642587534013032,
+      79.27311388323828
+    ],
+    [
+      18.8543103618898,
+      76.68079091891325
     ]
+  ]
 ];
 
 function EditableLayer(props) {
 
-  console.log("in editable layer function")
-
+  // console.log("props in layer function....", props)
+  
   const leaflet = useLeaflet();
   const editLayerRef = React.useRef();
   let drawControlRef = React.useRef();
-  let {map} = leaflet;
+  let { map } = leaflet;
 
+  useEffect(() => {
 
-  
-    useEffect(() => {
-    
-      console.log("props.showDrawControl", props.showDrawControl)
-  
-      if (!props.showDrawControl) {
-        map.removeControl(drawControlRef.current);
-      } else {
-        map.addControl(drawControlRef.current);
-      }
-  
+    if (!props.showDrawControl) {
+      map.removeControl(drawControlRef.current);
+    } else {
+      map.addControl(drawControlRef.current);
+    }
+
+    editLayerRef.current.leafletElement.clearLayers();
+    if (props.layer) {
       editLayerRef.current.leafletElement.clearLayers();
+      editLayerRef.current.leafletElement.addLayer(props.layer);
+      props.layer.on("click", function (e) {
+        console.log("on layer click")
+        props.onLayerClicked(e, drawControlRef.current);
+      });
+    }
+  });
 
-      if(props.layer){
-        editLayerRef.current.leafletElement.addLayer(props.layer);
-        props.layer.on("click", function (e) {
-          props.onLayerClicked(e, drawControlRef.current);
-        });
-      }
-      // editLayerRef.current.leafletElement.addLayer(props.layer);
-  
-    
-  
-    }, );
-  
-
-  function onMounted(ctl) {
+  const onMounted = (ctl) => {
     drawControlRef.current = ctl;
   }
 
-  const onCreat = e => {
+  const onCreate = e => {
     const { layerType, layer } = e;
 
     if (layerType === "polygon") {
@@ -79,77 +73,126 @@ function EditableLayer(props) {
     }
   };
 
-  const onEdit = e => {
-    console.log("edited layers...", e);
+  const onEdit = async (e) => {
+    
+   const { layers: { _layers } } = e;
+
+   Object.values(_layers).map(({ feature, _leaflet_id, editing }) => {
+
+    const coordinates = [];
+    const latlngs = editing.latlngs[0][0];
+
+    for (var i = 0; i < latlngs.length; i++) {
+      coordinates.push([latlngs[i].lat, latlngs[i].lng])
+    }
+
+    setTimeout(()=>{
+      props.updateCoordinates(feature.properties.editLayerId, coordinates);
+
+    },1000)
+
+   })
+
+  //  if(!edit){
+  // edit = true; 
+  //  }
+  }
+
+  const onDelete = async (e) => {
+    
     const { layers: { _layers } } = e;
+  
+    console.log("event on delete...", e )
 
-    Object.values(_layers).map(({ layers, editing }) => {
-      // console.log("_leaflet_id.....", layers )
-    })
+    if ( _layers && _layers.feature) {
+      // console.log("delete event called....", _layers)
 
+      props.removePolygonLayer(_layers.feature.properties.editLayerId)
+    }
   }
 
   return (
-    <div>
+    <div >
       <FeatureGroup ref={editLayerRef}>
         <EditControl
           position="topright"
           onMounted={onMounted}
-          onCreated={onCreat}
+          onCreated={onCreate}
           onEdited={onEdit}
+          onDeleted={onDelete}
           {...props}
         />
       </FeatureGroup>
     </div>
+    
   );
 }
- 
+
 function EditableGroup(props) {
   const [selectedLayerIndex, setSelectedLayerIndex] = useState(0);
 
-  const [layer, setLayer] = useState([])
+  const [polyLayer, setPolyLayer] = useState(props.data)
 
-  function addNewLayer (coordinates) {
-    setLayer([
-      ...layer,
-      coordinates,
-    ]);
+  function addNewLayer(coordinates) {
+
+    setTimeout (()=> {
+      if ( polyLayer.indexOf(coordinates) === -1 ) {
+        setPolyLayer([
+          ...polyLayer,
+          coordinates,
+        ]);
+      }
+    },1000)
+    
   };
 
-  function updateCoordinates(index, newCoordinates){
-    // console.log("state reset called",newLayers)
-    const newLayers = [...layer];
+  function updateCoordinates(index, newCoordinates) {
+    const newLayers = [...polyLayer];
     newLayers[index] = newCoordinates;
-    setLayer(newLayers)
-    console.log("state reset called",layer, props.data)
+
+    setPolyLayer(newLayers)
+    props.loadOnEdit(newLayers)
+  }
+
+
+  function removePolygonLayer(index) {
+    console.log("index to be removed from array....", index)
+    const newLayers = polyLayer.splice(index, 1)
+    setPolyLayer(newLayers)
+    props.loadOnEdit(newLayers)
   }
 
   function handleLayerClick(e, drawControl) {
     setSelectedLayerIndex(e.target.feature.properties.editLayerId);
+    // alert("You clicked on layer "+e.target.feature.properties.editLayerId)
   }
 
-  const polyLayerData =   {
+  const polyLayerData = {
     "type": "FeatureCollection",
     "features": []
   }
 
-  for (let i = 0; i < layer.length ; i++ ) { 
+
+  for (let i = 0; i < polyLayer.length; i++) {
+
     const geojson = {};
     geojson['type'] = 'Feature';
-    geojson['properties'] = {};
+    geojson['properties'] = { editLayerId: i };
     geojson['geometry'] = {};
     geojson['geometry']['type'] = "Polygon";
 
-    // export the coordinates from the layer
+    // export the coordinates from the polyLayer
     const coordinates = [];
-    const latlngs = layer[i];
+    const latlngs = polyLayer[i];
 
-    for (let i = 0; i < latlngs.length; i++) {
-      coordinates.push([latlngs[i][1], latlngs[i][0]])
+    if (latlngs && latlngs.length > 0) {
+      for (let i = 0; i < latlngs.length; i++) {
+        coordinates.push([latlngs[i][1], latlngs[i][0]])
+      }
+  
+      geojson['geometry']['coordinates'] = [coordinates];
+      polyLayerData.features.push(geojson)
     }
-
-    geojson['geometry']['coordinates'] = [coordinates];
-    polyLayerData.features.push(geojson)
   }
 
   let dataLayer = new L.GeoJSON(polyLayerData);
@@ -157,44 +200,41 @@ function EditableGroup(props) {
   let i = 0;
 
   dataLayer.eachLayer((layer) => {
-    // console.log("leaflet id", layer._leaflet_id)
     layer.feature.properties.editLayerId = i;
     layers.push(layer);
     i++;
   });
 
- 
-  console.log("in editable group layer .....", layers)
-  return (
-    <div>
 
-      {
-       
-       layers.length > 0 ? layers.map((mapLayer, i) => { return (
+  return (
+    <>
+    <div style={{ display: "flex" }}>
+      { layers.length > 0 ?
+        layers.map((mapLayer, i) => {
+          return (
+            <EditableLayer
+              addNewLayer={addNewLayer}
+              updateCoordinates={updateCoordinates}
+              removePolygonLayer={removePolygonLayer}
+              layerLength={polyLayer.length}
+              key={i}
+              layer={mapLayer}
+              showDrawControl={i === selectedLayerIndex}
+              onLayerClicked={handleLayerClick}
+            />
+          );
+        }) : (
           <EditableLayer
             addNewLayer={addNewLayer}
-            updateCoordinates= {(coordinates) => updateCoordinates(i, coordinates)}
-            layerLength = {layer.length}
-            key={i}
-            layer={mapLayer}
-            showDrawControl={i === selectedLayerIndex}
+            removePolygonLayer={removePolygonLayer}
+            key={0}
+            showDrawControl={true}
             onLayerClicked={handleLayerClick}
           />
-        );
-      }) : (
-        <EditableLayer
-            addNewLayer={addNewLayer}
-            // updateCoordinates= {(coordinates) => updateCoordinates(i, coordinates)}
-            // layerLength = {layer.length}
-            key={i}
-            showDrawControl={i === selectedLayerIndex}
-            onLayerClicked={handleLayerClick}
-          />
-      )
-      
+        )
       }
-
     </div>
+    </>
   );
 }
 
@@ -202,8 +242,16 @@ function MapExample(props) {
 
   const position = [20.5937, 78.9629];
 
+  const [loadState, setLoadState] = useState(false)
+
+  const loadOnEdit = (newPolyCoordinates) =>{
+    console.log("load component called")
+    setLoadState(true)
+  }
+
   return (
-    <Map 
+    <div> 
+     <Map
       center={position}
       zoom={5}
       scrollWheelZoom={true}
@@ -212,8 +260,13 @@ function MapExample(props) {
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         attribution='&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors'
       />
-      <EditableGroup data={data}  />
+
+      <EditableGroup data={data} 
+        loadOnEdit= { loadOnEdit }
+      />
     </Map>
+  
+    </div>
   );
 }
 
